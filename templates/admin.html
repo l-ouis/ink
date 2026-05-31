@@ -1,0 +1,86 @@
+{{define "title"}}Admin · {{.Site}}{{end}}
+{{define "content"}}
+<div class="admin">
+  <div class="admin-head">
+    <h1>Dashboard</h1>
+    <form method="post" action="/admin/logout" class="inline">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button type="submit" class="link-btn">Sign out</button>
+    </form>
+  </div>
+
+  <section>
+    <div class="section-head">
+      <h2>Pages</h2>
+      <a class="btn" href="/admin/edit">New page</a>
+    </div>
+    <ul class="doc-list">
+      {{range .Pages}}
+      <li class="doc-item">
+        <a class="doc-title" href="/admin/edit?edit=1&slug={{.Slug}}">{{.Title}}</a>
+        <code class="doc-path">{{.URL}}</code>
+        {{if .Draft}}<span class="draft-badge">draft</span>{{end}}
+        <time class="doc-date">{{fmtDate .Date}}</time>
+        <span class="doc-actions">
+          <a href="{{.URL}}" target="_blank" rel="noopener">view</a>
+          {{if not .IsHome}}
+          <form method="post" action="/admin/delete" class="inline" onsubmit="return confirm('Delete &quot;{{.Title}}&quot;?')">
+            <input type="hidden" name="csrf" value="{{$.CSRF}}">
+            <input type="hidden" name="slug" value="{{.Slug}}">
+            <button type="submit" class="link-btn danger">delete</button>
+          </form>
+          {{end}}
+        </span>
+      </li>
+      {{else}}<li class="empty">No pages yet.</li>{{end}}
+    </ul>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Media</h2>
+      <a class="btn" href="/admin/gallery">Open gallery</a>
+    </div>
+    <p class="hint">Browse, upload and delete images. Or paste / drag images straight into the editor.</p>
+
+    <div class="favicon-row">
+      {{if .HasFavicon}}<img class="favicon-preview" src="/favicon.ico" alt="favicon">{{end}}
+      <form class="upload-form" method="post" action="/admin/favicon" enctype="multipart/form-data">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <label class="favicon-label">Favicon
+          <input type="file" name="favicon" accept="image/png,image/jpeg,image/gif,image/webp" required>
+        </label>
+        <button type="submit">{{if .HasFavicon}}Replace{{else}}Upload{{end}}</button>
+      </form>
+      {{if .HasFavicon}}
+      <form method="post" action="/admin/favicon/delete" class="inline" onsubmit="return confirm('Remove the favicon?')">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <button type="submit" class="link-btn danger">remove</button>
+      </form>
+      {{end}}
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Settings</h2>
+    </div>
+    <form method="post" action="/admin/settings" class="settings-form">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <label>Header title
+        <input type="text" name="header_title" value="{{.HeaderTitle}}" placeholder="ink">
+      </label>
+      <p class="hint">Shown at the top left. Leave blank for the default (ink).</p>
+      <label>Site font
+        <select name="font">
+          {{range .Fonts}}
+          <option value="{{.Key}}" style="font-family: {{.Stack}}"{{if eq .Key $.FontKey}} selected{{end}}>{{.Name}}</option>
+          {{end}}
+        </select>
+      </label>
+      <p class="hint">The serif typeface used across the site.</p>
+      <button type="submit">Save settings</button>
+    </form>
+  </section>
+</div>
+{{end}}

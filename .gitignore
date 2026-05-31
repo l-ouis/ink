@@ -1,0 +1,8 @@
+# Built binary
+/ink
+
+# Runtime data: holds the password hash and session secret — never commit.
+/data/
+
+# Atomic-write temp files
+*.tmp

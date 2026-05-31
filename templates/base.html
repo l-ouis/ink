@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{block "title" .}}{{.Site}}{{end}}</title>
+  {{block "meta" .}}{{end}}
+  {{if .Favicon}}<link rel="icon" href="/favicon.ico">{{end}}
+  <link rel="stylesheet" href="/static/fonts.css">
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/syntax.css">
+  <style>:root { --serif: {{.FontStack}}; }</style>
+</head>
+<body>
+  <header class="site-header">
+    <a class="site-title" href="/">{{.Header}}</a>
+    <nav>
+      {{if .Authed}}<a href="/admin">Admin</a>{{end}}
+    </nav>
+  </header>
+  <main>
+    {{block "content" .}}{{end}}
+  </main>
+</body>
+</html>

@@ -1,0 +1,39 @@
+{{define "title"}}Gallery · {{.Site}}{{end}}
+{{define "content"}}
+<div class="admin">
+  <div class="admin-head">
+    <h1>Gallery</h1>
+    <a class="back-link" href="/admin">&larr; Dashboard</a>
+  </div>
+
+  <section>
+    <form class="upload-form" method="post" action="/admin/upload" enctype="multipart/form-data">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <input type="hidden" name="redirect" value="/admin/gallery">
+      <input type="file" name="file" accept="image/png,image/jpeg,image/gif,image/webp" required>
+      <button type="submit">Upload</button>
+    </form>
+
+    <div class="gallery">
+      {{range .Images}}
+      <figure class="gallery-item">
+        <a href="{{.URL}}" target="_blank" rel="noopener"><img src="{{.URL}}" alt="{{.Name}}" loading="lazy"></a>
+        <figcaption>
+          <input class="gallery-md" type="text" readonly value="![]({{.URL}})" aria-label="Markdown for {{.Name}}" onclick="this.select()">
+          <div class="gallery-meta">
+            <span class="gallery-name" title="{{.Name}}">{{.Name}}</span>
+            <form method="post" action="/admin/gallery/delete" class="inline" onsubmit="return confirm('Delete {{.Name}}?')">
+              <input type="hidden" name="csrf" value="{{$.CSRF}}">
+              <input type="hidden" name="name" value="{{.Name}}">
+              <button type="submit" class="link-btn danger">delete</button>
+            </form>
+          </div>
+        </figcaption>
+      </figure>
+      {{else}}
+      <p class="empty">No images yet. Upload one above, or paste / drag an image into the editor.</p>
+      {{end}}
+    </div>
+  </section>
+</div>
+{{end}}

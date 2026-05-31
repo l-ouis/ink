@@ -1,0 +1,48 @@
+{{define "title"}}{{if .IsNew}}New page{{else}}Edit{{end}} · {{.Site}}{{end}}
+{{define "content"}}
+<form class="editor" method="post" action="/admin/save">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <input type="hidden" name="orig_slug" value="{{.Doc.Slug}}">
+  <input type="hidden" name="was_new" value="{{if .IsNew}}1{{else}}0{{end}}">
+  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+  {{if .Saved}}<p class="notice">Saved.</p>{{end}}
+
+  <div class="editor-fields">
+    <label class="field-title">Title
+      <input type="text" name="title" value="{{.Doc.Title}}" required autofocus>
+    </label>
+    <label>Path
+      <input type="text" name="slug" value="{{.Doc.Slug}}" pattern="[a-z0-9]+(?:-[a-z0-9]+)*(?:/[a-z0-9]+(?:-[a-z0-9]+)*)*" placeholder="projects/ink — empty = home page"{{if and (not .IsNew) (eq .Doc.Slug "")}} readonly{{end}}>
+    </label>
+    <label>Date
+      <input type="date" name="date" value="{{.Doc.Date}}">
+    </label>
+    <label class="check">
+      <input type="checkbox" name="draft" {{if .Doc.Draft}}checked{{end}}> Draft
+    </label>
+  </div>
+
+  <label class="full">Summary
+    <input type="text" name="summary" value="{{.Doc.Summary}}">
+  </label>
+
+  <div class="editor-tools">
+    <button type="button" id="image-btn" class="btn-sm">Insert image</button>
+    <input type="file" id="image-input" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
+    <a class="btn-sm" href="/admin/gallery" target="_blank" rel="noopener">Gallery</a>
+    <span class="hint">…or paste / drag an image in. Drag an image's corner in the preview to resize.</span>
+  </div>
+
+  <div class="editor-split">
+    <textarea name="body" id="body" spellcheck="true" placeholder="Write in Markdown…">{{.Doc.Body}}</textarea>
+    <div class="preview prose" id="preview"></div>
+  </div>
+
+  <div class="editor-actions">
+    <button type="submit">Save</button>
+    <a class="cancel" href="/admin">Cancel</a>
+    {{if not .IsNew}}<a class="visit-link" href="/{{.Doc.Slug}}" target="_blank" rel="noopener">Visit page ↗</a>{{end}}
+  </div>
+</form>
+<script src="/static/editor.js"></script>
+{{end}}
