@@ -3,15 +3,13 @@ package server
 import (
 	"encoding/json"
 	"errors"
-	"html/template"
 	"io"
 	"net/http"
-	"net/url"
+	"strconv"
 	"strings"
-	"time"
 
+	"ink/internal/canvas"
 	"ink/internal/config"
-	"ink/internal/content"
 	"ink/internal/media"
 	"ink/internal/render"
 )
@@ -21,7 +19,7 @@ const maxUploadBytes = 10 << 20 // 10 MiB
 
 func (s *Server) handleLoginForm(w http.ResponseWriter, r *http.Request) {
 	if s.auth.Authed(r) {
-		http.Redirect(w, r, "/admin", http.StatusSeeOther)
+		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
 	s.render(w, r, "login", map[string]any{"NoPassword": !s.cfg.HasPassword()})
@@ -41,7 +39,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.CheckPassword(r.FormValue("password")) {
 		s.auth.Reset()
 		s.auth.Issue(w)
-		http.Redirect(w, r, "/admin", http.StatusSeeOther)
+		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
 	s.auth.Fail()
@@ -60,127 +58,6 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	pages, err := s.store.List(false)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	// Build font options with a CSS-typed stack so each <option> can preview in
-	// its own typeface (a plain string is rejected by the style-attr sanitizer).
-	type fontOption struct {
-		Key, Name string
-		Stack     template.CSS
-	}
-	fonts := make([]fontOption, len(config.Fonts))
-	for i, f := range config.Fonts {
-		fonts[i] = fontOption{Key: f.Key, Name: f.Name, Stack: template.CSS(f.Stack)}
-	}
-	s.render(w, r, "admin", map[string]any{
-		"Pages":       pages,
-		"HeaderTitle": s.cfg.HeaderTitle,
-		"Fonts":       fonts,
-		"FontKey":     s.cfg.FontKey(),
-		"HasFavicon":  s.cfg.HasFavicon(),
-		"CSRF":        s.auth.CSRFToken(r),
-	})
-}
-
-func (s *Server) handleEdit(w http.ResponseWriter, r *http.Request) {
-	slug := r.URL.Query().Get("slug")
-
-	var doc content.Document
-	isNew := true
-	// An explicit ?edit=1 lets the owner open the home page (empty slug).
-	if slug != "" || r.URL.Query().Get("edit") != "" {
-		p, err := s.store.Get(slug)
-		if err != nil {
-			s.notFound(w, r)
-			return
-		}
-		isNew = false
-		date := ""
-		if !p.Date.IsZero() {
-			date = p.Date.Format("2006-01-02")
-		}
-		doc = content.Document{
-			Slug: p.Slug, Title: p.Title,
-			Date: date, Draft: p.Draft, Summary: p.Summary, Body: p.Body,
-		}
-	} else {
-		doc = content.Document{Date: time.Now().Format("2006-01-02"), Draft: true}
-	}
-	s.renderEdit(w, r, &doc, isNew, "")
-}
-
-func (s *Server) renderEdit(w http.ResponseWriter, r *http.Request, doc *content.Document, isNew bool, errMsg string) {
-	status := http.StatusOK
-	if errMsg != "" {
-		status = http.StatusBadRequest
-	}
-	s.renderStatus(w, r, status, "edit", map[string]any{
-		"Doc":   doc,
-		"IsNew": isNew,
-		"Error": errMsg,
-		"Saved": errMsg == "" && r.URL.Query().Get("saved") != "",
-		"CSRF":  s.auth.CSRFToken(r),
-	})
-}
-
-func (s *Server) handleSave(w http.ResponseWriter, r *http.Request) {
-	if !s.auth.CheckCSRF(r) {
-		http.Error(w, "invalid csrf token", http.StatusForbidden)
-		return
-	}
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-	origSlug := r.FormValue("orig_slug")
-	doc := &content.Document{
-		Slug:    strings.Trim(strings.TrimSpace(r.FormValue("slug")), "/"),
-		Title:   strings.TrimSpace(r.FormValue("title")),
-		Date:    strings.TrimSpace(r.FormValue("date")),
-		Draft:   r.FormValue("draft") == "on",
-		Summary: strings.TrimSpace(r.FormValue("summary")),
-		Body:    r.FormValue("body"),
-	}
-
-	// isNew is carried across the request via the hidden was_new field, since an
-	// empty orig_slug is also the (existing) home page.
-	isNew := r.FormValue("was_new") == "1"
-	if !content.ValidSlug(doc.Slug) {
-		s.renderEdit(w, r, doc, isNew, "Each path segment must be lowercase letters, numbers and single hyphens, e.g. projects/ink.")
-		return
-	}
-	if err := s.store.Save(doc); err != nil {
-		s.renderEdit(w, r, doc, isNew, "Could not save: "+err.Error())
-		return
-	}
-	// Handle rename: remove the old file once the new one is written.
-	if !isNew && origSlug != doc.Slug && content.ValidSlug(origSlug) {
-		_ = s.store.Delete(origSlug)
-	}
-	// Stay in the editor after saving (Post/Redirect/Get avoids resubmit on refresh).
-	http.Redirect(w, r, "/admin/edit?edit=1&saved=1&slug="+url.QueryEscape(doc.Slug), http.StatusSeeOther)
-}
-
-func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
-	if !s.auth.CheckCSRF(r) {
-		http.Error(w, "invalid csrf token", http.StatusForbidden)
-		return
-	}
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-	if err := s.store.Delete(strings.Trim(r.FormValue("slug"), "/")); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	http.Redirect(w, r, "/admin", http.StatusSeeOther)
-}
-
 func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	if !s.auth.CheckCSRF(r) {
 		http.Error(w, "invalid csrf token", http.StatusForbidden)
@@ -196,24 +73,108 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not save settings: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-func (s *Server) handleGallery(w http.ResponseWriter, r *http.Request) {
-	images, err := s.media.List()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+// ---- Canvas item API -------------------------------------------------------
+
+// handleItemAdd creates a new text or image item and returns it as JSON,
+// including the server-rendered HTML for text items and the assigned id/z.
+func (s *Server) handleItemAdd(w http.ResponseWriter, r *http.Request) {
+	if !s.auth.CheckCSRF(r) {
+		http.Error(w, "invalid csrf token", http.StatusForbidden)
 		return
 	}
-	s.render(w, r, "gallery", map[string]any{
-		"Images": images,
-		"CSRF":   s.auth.CSRFToken(r),
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	it := canvas.Item{
+		Type:     r.FormValue("type"),
+		X:        formFloat(r, "x", 0),
+		Y:        formFloat(r, "y", 0),
+		W:        formFloat(r, "w", 320),
+		H:        formFloat(r, "h", 0),
+		Content:  r.FormValue("content"),
+		Layer:    r.FormValue("layer"),
+		Adaptive: r.FormValue("adaptive") == "1",
+	}
+	stored, err := s.canvas.Add(it)
+	if errors.Is(err, canvas.ErrType) {
+		http.Error(w, "unknown item type", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		http.Error(w, "could not save item", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{
+		"id":   stored.ID,
+		"z":    stored.Z,
+		"html": s.renderItem(stored),
 	})
 }
 
-// handleUpload accepts a single multipart image. With a "redirect" form field
-// (the no-JS gallery form) it redirects back; otherwise it returns JSON
-// {"url","name"} for the editor's fetch-based upload.
+// handleItemUpdate changes an item's position, size and/or content, returning
+// the re-rendered HTML.
+func (s *Server) handleItemUpdate(w http.ResponseWriter, r *http.Request) {
+	if !s.auth.CheckCSRF(r) {
+		http.Error(w, "invalid csrf token", http.StatusForbidden)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	stored, err := s.canvas.Update(
+		r.FormValue("id"),
+		formFloat(r, "x", 0), formFloat(r, "y", 0),
+		formFloat(r, "w", 0), formFloat(r, "h", 0),
+		int(formFloat(r, "z", 0)),
+		r.FormValue("content"),
+		r.FormValue("layer"), r.FormValue("adaptive") == "1",
+	)
+	if errors.Is(err, canvas.ErrNotFound) {
+		http.Error(w, "no such item", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "could not save item", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"html": s.renderItem(stored)})
+}
+
+// handleItemDelete removes an item.
+func (s *Server) handleItemDelete(w http.ResponseWriter, r *http.Request) {
+	if !s.auth.CheckCSRF(r) {
+		http.Error(w, "invalid csrf token", http.StatusForbidden)
+		return
+	}
+	if err := s.canvas.Delete(r.FormValue("id")); err != nil {
+		http.Error(w, "could not delete item", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// renderItem returns the display HTML for a text item (rendered Markdown), or
+// the empty string for an image (the client builds the <img> from its URL).
+func (s *Server) renderItem(it *canvas.Item) string {
+	if it.Type != canvas.TypeText {
+		return ""
+	}
+	html, err := render.Render(".md", []byte(it.Content))
+	if err != nil {
+		return ""
+	}
+	return string(html)
+}
+
+// ---- Uploads ---------------------------------------------------------------
+
+// handleUpload accepts a single multipart image and returns JSON {"url","name"}
+// for the canvas editor's fetch-based upload.
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
 	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
@@ -245,13 +206,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Could not save image.", http.StatusInternalServerError)
 		return
 	}
-
-	if redirect := r.FormValue("redirect"); isLocalRedirect(redirect) {
-		http.Redirect(w, r, redirect, http.StatusSeeOther)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"url": img.URL, "name": img.Name})
+	writeJSON(w, map[string]string{"url": img.URL, "name": img.Name})
 }
 
 // handleUploadFavicon stores an uploaded image as the site favicon (alongside
@@ -286,7 +241,7 @@ func (s *Server) handleUploadFavicon(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Could not save favicon.", http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (s *Server) handleDeleteFavicon(w http.ResponseWriter, r *http.Request) {
@@ -298,41 +253,26 @@ func (s *Server) handleDeleteFavicon(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Could not remove favicon.", http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-func (s *Server) handleDeleteUpload(w http.ResponseWriter, r *http.Request) {
-	if !s.auth.CheckCSRF(r) {
-		http.Error(w, "invalid csrf token", http.StatusForbidden)
-		return
-	}
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-	if err := s.media.Delete(r.FormValue("name")); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	http.Redirect(w, r, "/admin/gallery", http.StatusSeeOther)
-}
+// ---- helpers ---------------------------------------------------------------
 
-// isLocalRedirect reports whether dst is a safe same-site redirect target,
-// guarding against open redirects (e.g. "//evil.com").
-func isLocalRedirect(dst string) bool {
-	return strings.HasPrefix(dst, "/") && !strings.HasPrefix(dst, "//")
-}
-
-func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
+// formFloat reads a float form field, falling back to def when absent or
+// unparseable.
+func formFloat(r *http.Request, name string, def float64) float64 {
+	v := strings.TrimSpace(r.FormValue(name))
+	if v == "" {
+		return def
 	}
-	out, err := render.Render(".md", []byte(r.FormValue("body")))
+	f, err := strconv.ParseFloat(v, 64)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+		return def
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(out))
+	return f
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(v)
 }

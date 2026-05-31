@@ -35,7 +35,9 @@ func newMarkdown() *markdown {
 			),
 		),
 		goldmark.WithParserOptions(parser.WithAutoHeadingID()),
-		goldmark.WithRendererOptions(html.WithUnsafe()),
+		// HardWraps turns a single newline into a <br>, so pressing Enter in a
+		// text box makes a line break (no trailing-space convention needed).
+		goldmark.WithRendererOptions(html.WithUnsafe(), html.WithHardWraps()),
 	)}
 }
 

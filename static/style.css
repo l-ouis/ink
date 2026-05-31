@@ -29,7 +29,7 @@ body {
 main {
   max-width: var(--width);
   margin: 0 auto;
-  padding: 1rem 1.25rem 4rem;
+  padding: 6rem 1.25rem 4rem;
 }
 
 a { color: var(--accent); text-decoration: none; }
@@ -40,10 +40,8 @@ a:hover { text-decoration: underline; }
   max-width: var(--width);
   margin: 0 auto;
   padding: 1.75rem 1.25rem 1rem;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--faint);
+  position: relative;
+  text-align: center;
 }
 .site-title {
   font-weight: 700;
@@ -51,7 +49,7 @@ a:hover { text-decoration: underline; }
   color: var(--ink);
   letter-spacing: -0.01em;
 }
-.site-header nav { font-family: var(--sans); font-size: 0.85rem; }
+.site-header nav { position: absolute; right: 1.25rem; top: 1.75rem; font-family: var(--sans); font-size: 0.85rem; }
 .site-header nav a { color: var(--muted); margin-left: 1rem; }
 
 /* Home post list */

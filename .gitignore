@@ -1,8 +1,13 @@
 # Built binary
 /ink
 
-# Runtime data: holds the password hash and session secret — never commit.
+# Runtime data: holds the password hash and session secret, plus the canvas
+# layout (canvas.json) — never commit.
 /data/
+
+# Uploaded images and any other runtime content. The repo is code-only; back
+# these up separately (rsync/snapshot), not via git.
+/content/
 
 # Atomic-write temp files
 *.tmp

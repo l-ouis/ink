@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>{{.Site}}</title>
+  {{if .Favicon}}<link rel="icon" href="/favicon.ico">{{end}}
+  <link rel="stylesheet" href="/static/fonts.css">
+  <link rel="stylesheet" href="/static/syntax.css">
+  <link rel="stylesheet" href="/static/canvas.css">
+  <style>:root { --serif: {{.FontStack}}; }</style>
+</head>
+<body{{if .Authed}} data-authed="1"{{end}} data-csrf="{{.CSRF}}">
+  <div id="viewport">
+    <div id="world">
+      <div id="origin-dot" aria-hidden="true" title="Canvas centre">
+        <svg viewBox="0 0 24 24"><path d="M12 0 Q13.6 10.4 24 12 Q13.6 13.6 12 24 Q10.4 13.6 0 12 Q10.4 10.4 12 0Z"/></svg>
+      </div>
+      {{range .Items}}
+      <div class="item item-{{.Type}}{{if and (eq .Type "text") .Adaptive}} adaptive{{end}}"
+           data-id="{{.ID}}" data-type="{{.Type}}"
+           data-x="{{.X}}" data-y="{{.Y}}" data-w="{{.W}}" data-h="{{.H}}"
+           data-layer="{{.Layer}}" data-adaptive="{{if .Adaptive}}1{{end}}"
+           data-md="{{.Content}}">
+        <div class="item-body">
+          {{if eq .Type "text"}}{{.HTML}}{{else}}<img src="{{.Content}}" alt="" draggable="false">{{end}}
+        </div>
+        <button class="item-del" type="button" title="Delete" aria-label="Delete">&times;</button>
+        <span class="item-resize" title="Resize" aria-hidden="true"></span>
+      </div>
+      {{end}}
+    </div>
+  </div>
+
+  <a class="brand" href="/">{{.Header}}</a>
+  <div class="hint" id="hint"></div>
+
+  {{if .Authed}}
+  <div id="toolbar">
+    <button type="button" id="add-text" title="Add a text box">＋ Text</button>
+    <button type="button" id="add-image" title="Add an image">＋ Image</button>
+    <button type="button" id="open-settings" title="Settings">⚙</button>
+    <form method="post" action="/admin/logout" class="inline">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button type="submit" title="Sign out">Sign out</button>
+    </form>
+  </div>
+
+  <input type="file" id="image-input" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
+
+  <dialog id="settings">
+    <form method="post" action="/admin/settings" class="settings-form">
+      <h2>Settings</h2>
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <label>Corner label
+        <input type="text" name="header_title" value="{{.HeaderTitle}}" placeholder="ink">
+      </label>
+      <label>Font
+        <select name="font">
+          {{range .Fonts}}<option value="{{.Key}}" style="font-family: {{.Stack}}"{{if eq .Key $.FontKey}} selected{{end}}>{{.Name}}</option>{{end}}
+        </select>
+      </label>
+      <div class="settings-actions">
+        <button type="button" id="close-settings">Cancel</button>
+        <button type="submit">Save</button>
+      </div>
+    </form>
+    <form method="post" action="/admin/favicon" enctype="multipart/form-data" class="settings-form favicon-form">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <label>Favicon
+        <input type="file" name="favicon" accept="image/png,image/jpeg,image/gif,image/webp">
+      </label>
+      <button type="submit">Upload favicon</button>
+    </form>
+    {{if .HasFavicon}}
+    <form method="post" action="/admin/favicon/delete" class="settings-form">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button type="submit">Remove favicon</button>
+    </form>
+    {{end}}
+  </dialog>
+
+  <dialog id="editor">
+    <form id="editor-form">
+      <textarea id="editor-text" placeholder="# Markdown goes here" spellcheck="false"></textarea>
+      <label class="check"><input type="checkbox" id="editor-adaptive"> Adaptive contrast — flip text black/white over images</label>
+      <div class="editor-actions">
+        <span class="editor-tip">Markdown · Esc to cancel · ⌘/Ctrl+Enter to save</span>
+        <button type="button" id="editor-cancel">Cancel</button>
+        <button type="submit">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="image-opts">
+    <div class="settings-form">
+      <h2>Image</h2>
+      <div class="opt-group">
+        <span class="opt-label">Layer</span>
+        <label class="check"><input type="radio" name="layer" value="under"> Under text</label>
+        <label class="check"><input type="radio" name="layer" value="over"> Over text</label>
+      </div>
+      <div class="opt-group">
+        <span class="opt-label">Arrange</span>
+        <div class="z-controls">
+          <button type="button" data-z="back" title="Send to back">⤓ Back</button>
+          <button type="button" data-z="backward" title="Send backward">▽ Down</button>
+          <button type="button" data-z="forward" title="Bring forward">△ Up</button>
+          <button type="button" data-z="front" title="Bring to front">⤒ Front</button>
+        </div>
+      </div>
+      <div class="settings-actions">
+        <button type="button" id="image-opts-close">Close</button>
+      </div>
+    </div>
+  </dialog>
+  {{end}}
+
+  <script src="/static/canvas.js"></script>
+</body>
+</html>

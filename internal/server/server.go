@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"ink/internal/auth"
+	"ink/internal/canvas"
 	"ink/internal/config"
-	"ink/internal/content"
 	"ink/internal/media"
 )
 
@@ -21,7 +21,7 @@ type Server struct {
 	cfg     *config.Config
 	cfgPath string
 	dataDir string // where the favicon is stored, alongside the config file
-	store   *content.Store
+	canvas  *canvas.Store
 	media   *media.Store
 	auth    *auth.Manager
 	tmpl    map[string]*template.Template
@@ -34,8 +34,8 @@ type Server struct {
 // are persisted. tmplFS must contain templates/*.html; staticFS is served at
 // /static/ and should be rooted at the static directory. Uploaded images are
 // served from the media store's directory on disk.
-func New(cfg *config.Config, cfgPath string, store *content.Store, ms *media.Store, am *auth.Manager, tmplFS, staticFS fs.FS) (*Server, error) {
-	s := &Server{cfg: cfg, cfgPath: cfgPath, dataDir: filepath.Dir(cfgPath), store: store, media: ms, auth: am}
+func New(cfg *config.Config, cfgPath string, cv *canvas.Store, ms *media.Store, am *auth.Manager, tmplFS, staticFS fs.FS) (*Server, error) {
+	s := &Server{cfg: cfg, cfgPath: cfgPath, dataDir: filepath.Dir(cfgPath), canvas: cv, media: ms, auth: am}
 	if err := s.parseTemplates(tmplFS); err != nil {
 		return nil, err
 	}
@@ -111,11 +111,13 @@ var funcs = template.FuncMap{
 	},
 }
 
-// pages are content templates; each is parsed together with the base layout.
-var pages = []string{"page", "message", "login", "admin", "edit", "gallery"}
+// pages are content templates wrapped in the shared base layout (a centered
+// document with a header). The canvas is full-screen and stands alone, so it is
+// parsed separately below.
+var pages = []string{"message", "login"}
 
 func (s *Server) parseTemplates(tmplFS fs.FS) error {
-	s.tmpl = make(map[string]*template.Template, len(pages))
+	s.tmpl = make(map[string]*template.Template, len(pages)+1)
 	for _, p := range pages {
 		t, err := template.New("base.html").Funcs(funcs).
 			ParseFS(tmplFS, "templates/base.html", "templates/"+p+".html")
@@ -124,6 +126,12 @@ func (s *Server) parseTemplates(tmplFS fs.FS) error {
 		}
 		s.tmpl[p] = t
 	}
+	// The canvas is a standalone full-document template (no shared base).
+	t, err := template.New("canvas.html").Funcs(funcs).ParseFS(tmplFS, "templates/canvas.html")
+	if err != nil {
+		return err
+	}
+	s.tmpl["canvas"] = t
 	return nil
 }
 
@@ -135,25 +143,23 @@ func (s *Server) routes() {
 	mux.HandleFunc("GET /uploads/", s.serveUpload)
 	mux.HandleFunc("GET /favicon.ico", s.serveFavicon)
 
-	// Admin.
+	// Admin: session + settings.
 	mux.HandleFunc("GET /admin/login", s.handleLoginForm)
 	mux.HandleFunc("POST /admin/login", s.handleLogin)
 	mux.HandleFunc("POST /admin/logout", s.auth.Require(s.handleLogout))
-	mux.HandleFunc("GET /admin", s.auth.Require(s.handleDashboard))
-	mux.HandleFunc("GET /admin/edit", s.auth.Require(s.handleEdit))
-	mux.HandleFunc("POST /admin/save", s.auth.Require(s.handleSave))
-	mux.HandleFunc("POST /admin/delete", s.auth.Require(s.handleDelete))
-	mux.HandleFunc("POST /admin/preview", s.auth.Require(s.handlePreview))
 	mux.HandleFunc("POST /admin/settings", s.auth.Require(s.handleSaveSettings))
-	mux.HandleFunc("GET /admin/gallery", s.auth.Require(s.handleGallery))
 	mux.HandleFunc("POST /admin/upload", s.auth.Require(s.handleUpload))
-	mux.HandleFunc("POST /admin/gallery/delete", s.auth.Require(s.handleDeleteUpload))
 	mux.HandleFunc("POST /admin/favicon", s.auth.Require(s.handleUploadFavicon))
 	mux.HandleFunc("POST /admin/favicon/delete", s.auth.Require(s.handleDeleteFavicon))
 
-	// Catch-all page route at any depth. The home page (/) and nested paths
-	// (/projects/ink) all resolve here; the more specific patterns above win.
-	mux.HandleFunc("GET /{path...}", s.handlePage)
+	// Admin: canvas item mutations (form-encoded, CSRF-protected, JSON replies).
+	mux.HandleFunc("POST /admin/item/add", s.auth.Require(s.handleItemAdd))
+	mux.HandleFunc("POST /admin/item/update", s.auth.Require(s.handleItemUpdate))
+	mux.HandleFunc("POST /admin/item/delete", s.auth.Require(s.handleItemDelete))
+
+	// The canvas is the whole site. Everything else 404s.
+	mux.HandleFunc("GET /{$}", s.handleCanvas)
+	mux.HandleFunc("GET /", s.notFound)
 
 	s.mux = mux
 }
@@ -184,7 +190,7 @@ func (s *Server) renderStatus(w http.ResponseWriter, r *http.Request, status int
 		return
 	}
 	var buf bytes.Buffer
-	if err := t.ExecuteTemplate(&buf, "base.html", data); err != nil {
+	if err := t.ExecuteTemplate(&buf, t.Name(), data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

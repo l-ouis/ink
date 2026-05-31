@@ -22,8 +22,8 @@ import (
 	"golang.org/x/term"
 
 	"ink/internal/auth"
+	"ink/internal/canvas"
 	"ink/internal/config"
-	"ink/internal/content"
 	"ink/internal/media"
 	"ink/internal/server"
 )
@@ -60,7 +60,8 @@ func main() {
 func runServe(args []string) error {
 	fset := flag.NewFlagSet("serve", flag.ExitOnError)
 	addr := fset.String("addr", ":8080", "listen address")
-	contentDir := fset.String("content", "content", "content directory")
+	contentDir := fset.String("content", "content", "content directory (uploads live here)")
+	canvasPath := fset.String("canvas", "data/canvas.json", "canvas data file path")
 	configPath := fset.String("config", "data/config.json", "config file path")
 	if err := fset.Parse(args); err != nil {
 		return err
@@ -77,9 +78,9 @@ func runServe(args []string) error {
 		log.Printf("warning: no password set. Run `ink passwd` to enable sign-in.")
 	}
 
-	store, err := content.New(*contentDir)
+	cv, err := canvas.New(*canvasPath)
 	if err != nil {
-		return fmt.Errorf("open content store: %w", err)
+		return fmt.Errorf("open canvas: %w", err)
 	}
 
 	mediaStore, err := media.New(filepath.Join(*contentDir, "uploads"))
@@ -93,7 +94,7 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	srv, err := server.New(cfg, *configPath, store, mediaStore, am, templatesFS, staticSub)
+	srv, err := server.New(cfg, *configPath, cv, mediaStore, am, templatesFS, staticSub)
 	if err != nil {
 		return err
 	}

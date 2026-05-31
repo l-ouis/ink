@@ -1,10 +1,12 @@
 package server
 
 import (
+	"html/template"
 	"net/http"
 	"strings"
 
-	"ink/internal/content"
+	"ink/internal/canvas"
+	"ink/internal/config"
 	"ink/internal/render"
 )
 
@@ -28,32 +30,49 @@ func (s *Server) serveFavicon(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, path)
 }
 
-// handlePage serves any page by its path. The path wildcard captures everything
-// after the leading slash, so "" is the home page and "projects/ink" is a
-// nested page. A trailing slash is tolerated by redirecting to the clean path.
-func (s *Server) handlePage(w http.ResponseWriter, r *http.Request) {
-	slug := strings.Trim(r.PathValue("path"), "/")
-	if cleaned := "/" + slug; cleaned != r.URL.Path && slug != "" {
-		http.Redirect(w, r, cleaned, http.StatusMovedPermanently)
-		return
+// viewItem is an item prepared for the template: geometry plus the display HTML
+// (rendered Markdown for text, an <img> is built client-side for images) and
+// the raw source so the editor can reopen it.
+type viewItem struct {
+	*canvas.Item
+	HTML template.HTML
+}
+
+// handleCanvas serves the single-page infinite canvas with every item rendered
+// in place. The admin toolbar and editing controls are activated client-side
+// when the request carries a valid session.
+func (s *Server) handleCanvas(w http.ResponseWriter, r *http.Request) {
+	items := s.canvas.All()
+	views := make([]viewItem, 0, len(items))
+	for _, it := range items {
+		v := viewItem{Item: it}
+		if it.Type == canvas.TypeText {
+			html, err := render.Render(".md", []byte(it.Content))
+			if err != nil {
+				html = template.HTML("")
+			}
+			v.HTML = html
+		}
+		views = append(views, v)
 	}
-	if !content.ValidSlug(slug) {
-		s.notFound(w, r)
-		return
+
+	// Settings shown in the admin panel. A CSS-typed font stack lets each
+	// <option> preview in its own typeface.
+	type fontOption struct {
+		Key, Name string
+		Stack     template.CSS
 	}
-	p, err := s.store.Get(slug)
-	if err != nil {
-		s.notFound(w, r)
-		return
+	fonts := make([]fontOption, len(config.Fonts))
+	for i, f := range config.Fonts {
+		fonts[i] = fontOption{Key: f.Key, Name: f.Name, Stack: template.CSS(f.Stack)}
 	}
-	if p.Draft && !s.auth.Authed(r) {
-		s.notFound(w, r)
-		return
-	}
-	body, err := render.Render(p.Ext, []byte(p.Body))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	s.render(w, r, "page", map[string]any{"Page": p, "Body": body})
+
+	s.render(w, r, "canvas", map[string]any{
+		"Items":       views,
+		"CSRF":        s.auth.CSRFToken(r),
+		"HeaderTitle": s.cfg.HeaderTitle,
+		"Fonts":       fonts,
+		"FontKey":     s.cfg.FontKey(),
+		"HasFavicon":  s.cfg.HasFavicon(),
+	})
 }
