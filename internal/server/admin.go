@@ -137,6 +137,8 @@ func (s *Server) handleItemUpdate(w http.ResponseWriter, r *http.Request) {
 		Beacon:   strings.TrimSpace(r.FormValue("beacon")),
 		Original: strings.TrimSpace(r.FormValue("original")),
 		Crop:     strings.TrimSpace(r.FormValue("crop")),
+		ViewDX:   formFloat(r, "viewdx", 0),
+		ViewDY:   formFloat(r, "viewdy", 0),
 	})
 	if errors.Is(err, canvas.ErrNotFound) {
 		http.Error(w, "no such item", http.StatusNotFound)
@@ -147,6 +149,26 @@ func (s *Server) handleItemUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{"html": s.renderItem(stored)})
+}
+
+// handleOriginView persists the origin's view-point offset (where the corner
+// label and [text](origin) links land).
+func (s *Server) handleOriginView(w http.ResponseWriter, r *http.Request) {
+	if !s.auth.CheckCSRF(r) {
+		http.Error(w, "invalid csrf token", http.StatusForbidden)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	s.cfg.OriginViewX = formFloat(r, "vx", 0)
+	s.cfg.OriginViewY = formFloat(r, "vy", 0)
+	if err := s.cfg.Save(s.cfgPath); err != nil {
+		http.Error(w, "could not save", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleItemDelete removes an item.

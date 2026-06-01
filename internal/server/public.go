@@ -17,6 +17,9 @@ func (s *Server) serveUpload(w http.ResponseWriter, r *http.Request) {
 		s.notFound(w, r)
 		return
 	}
+	// Uploads get unique, never-overwritten names, so they are immutable: let
+	// browsers cache them indefinitely instead of revalidating on every load.
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	s.uploads.ServeHTTP(w, r)
 }
 
@@ -69,6 +72,8 @@ func (s *Server) handleCanvas(w http.ResponseWriter, r *http.Request) {
 
 	s.render(w, r, "canvas", map[string]any{
 		"Items":       views,
+		"OriginViewX": s.cfg.OriginViewX,
+		"OriginViewY": s.cfg.OriginViewY,
 		"CSRF":        s.auth.CSRFToken(r),
 		"HeaderTitle": s.cfg.HeaderTitle,
 		"Fonts":       fonts,

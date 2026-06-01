@@ -35,7 +35,7 @@
     // current zoom instead of stretching a cached bitmap.
     world.style.willChange = "transform";
     clearTimeout(idleRaster);
-    idleRaster = setTimeout(() => { world.style.willChange = "auto"; }, 200);
+    idleRaster = setTimeout(() => { world.style.willChange = "auto"; cull(); }, 200);
     try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)); } catch (_) {}
   }
 
@@ -60,17 +60,19 @@
   // centerOrigin puts the world origin (0,0) — the canvas centre and the spawn
   // point new visitors land on — at the middle of the screen, at 1:1 zoom.
   function centerOrigin() {
-    view.x = window.innerWidth / 2;
-    view.y = window.innerHeight / 2;
+    const v = originView();
+    view.x = window.innerWidth / 2 - v.x;
+    view.y = window.innerHeight / 2 - v.y;
     view.scale = 1;
     applyView();
   }
 
   // ---- Beacons ----
   // A beacon is a named item location. A Markdown link whose target matches an
-  // item's data-beacon — [text](id) — flies the canvas to centre that item
-  // instead of navigating. This works for every visitor, not just the owner.
-  // The reserved targets "origin"/"home" always fly to (0,0), with no beacon.
+  // item's data-beacon — [text](id) — flies the canvas to that beacon's *view
+  // point* (the star centre plus its view offset, so links needn't land on the
+  // star). This works for every visitor, not just the owner. The reserved
+  // targets "origin"/"home" fly to the origin's view point.
 
   world.addEventListener("click", (e) => {
     const a = e.target.closest(".item-body a");
@@ -84,18 +86,59 @@
     flyTo(el);
   });
 
-  // goOrigin flies back to the canvas centre (0,0) at 1:1 zoom — the spawn view.
-  function goOrigin() { animateView(window.innerWidth / 2, window.innerHeight / 2, 1); }
+  // originView returns the origin's view point in world coords: its star sits at
+  // (0,0), offset by the stored view delta.
+  function originView() {
+    const o = document.getElementById("origin-dot");
+    return { x: o ? num(o, "viewdx") : 0, y: o ? num(o, "viewdy") : 0 };
+  }
 
-  // flyTo smoothly pans (keeping the current zoom) so el sits in the middle of
-  // the screen.
+  // goOrigin flies to the origin's view point at 1:1 zoom — the spawn view.
+  function goOrigin() {
+    const v = originView();
+    animateView(window.innerWidth / 2 - v.x, window.innerHeight / 2 - v.y, 1);
+  }
+
+  // flyTo smoothly pans (keeping the current zoom) so el's view point sits in
+  // the middle of the screen.
   function flyTo(el) {
-    const cx = num(el, "x") + el.offsetWidth / 2;
-    const cy = num(el, "y") + el.offsetHeight / 2;
+    const cx = num(el, "x") + el.offsetWidth / 2 + num(el, "viewdx");
+    const cy = num(el, "y") + el.offsetHeight / 2 + num(el, "viewdy");
     animateView(
       window.innerWidth / 2 - cx * view.scale,
       window.innerHeight / 2 - cy * view.scale
     );
+  }
+
+  // ---- View-point handles (owner editing) ----
+  // decorateStar adds a draggable "view point" handle and a connector line to a
+  // star element (a beacon item, or #origin-dot). centerPx is the star centre in
+  // the element's local coords; onSave persists the new offset. Idempotent.
+  function decorateStar(el, centerPx, onSave) {
+    if (el.querySelector(".beacon-view")) return;
+    const line = document.createElement("div");
+    line.className = "beacon-link";
+    const handle = document.createElement("div");
+    handle.className = "beacon-view";
+    handle.title = "Link landing point — drag to move";
+    el.append(line, handle);
+    el._viewCenter = centerPx;
+    el._viewSave = onSave;
+    positionView(el);
+  }
+
+  // positionView lays out a star's handle and connector from its view offset.
+  function positionView(el) {
+    const c = el._viewCenter, dx = num(el, "viewdx"), dy = num(el, "viewdy");
+    const handle = el.querySelector(".beacon-view");
+    const line = el.querySelector(".beacon-link");
+    if (!handle) return;
+    handle.style.left = (c + dx) + "px";
+    handle.style.top = (c + dy) + "px";
+    line.style.left = c + "px";
+    line.style.top = c + "px";
+    line.style.width = Math.hypot(dx, dy) + "px";
+    line.style.transform = `rotate(${Math.atan2(dy, dx)}rad)`;
   }
 
   let animRAF = null;
@@ -131,7 +174,7 @@
   // ---- Pan / zoom / drag input ----
 
   const pointers = new Map(); // pointerId -> {x, y}
-  let mode = null;            // 'pan' | 'drag' | 'resize' | 'pinch'
+  let mode = null;            // 'pan' | 'drag' | 'resize' | 'pinch' | 'viewdrag'
   let start = null;           // mode-specific starting state
   let target = null;          // item element being dragged/resized
   let moved = false;
@@ -142,6 +185,15 @@
 
     if (pointers.size === 2) { beginPinch(); return; }
     if (pointers.size > 2 || mode === "pinch") return;
+
+    if (canEdit() && e.target.classList.contains("beacon-view")) {
+      // Drag a beacon's (or the origin's) view point, not the star.
+      target = e.target.closest(".item-beacon") || document.getElementById("origin-dot");
+      mode = "viewdrag";
+      start = { px: e.clientX, py: e.clientY, dx: num(target, "viewdx"), dy: num(target, "viewdy") };
+      moved = false;
+      return;
+    }
 
     const itemEl = canEdit() ? e.target.closest(".item") : null;
     if (canEdit() && e.target.closest(".item-del-confirm")) return; // handled on click
@@ -183,6 +235,10 @@
     } else if (mode === "resize") {
       target.dataset.w = Math.max(40, start.w + dx / view.scale);
       layout(target);
+    } else if (mode === "viewdrag") {
+      target.dataset.viewdx = start.dx + dx / view.scale;
+      target.dataset.viewdy = start.dy + dy / view.scale;
+      positionView(target);
     }
   });
 
@@ -193,6 +249,7 @@
       return;
     }
     if ((mode === "drag" || mode === "resize") && moved && target) saveGeometry(target);
+    if (mode === "viewdrag" && moved && target && target._viewSave) target._viewSave();
     if (pointers.size === 0) {
       mode = null; target = null; start = null;
       viewport.classList.remove("panning");
@@ -267,6 +324,8 @@
       beacon: el.dataset.beacon || "",
       original: el.dataset.original || "",
       crop: el.dataset.crop || "",
+      viewdx: num(el, "viewdx"),
+      viewdy: num(el, "viewdy"),
     };
   }
 
@@ -275,6 +334,7 @@
       await postForm("/admin/item/update", payload(el));
     } catch (err) { hint("Couldn't save position"); }
     refreshAdaptive();
+    cull();
   }
 
   // Stacking bands keep all "under" images below text and all "over" images
@@ -318,9 +378,10 @@
     el.dataset.adaptive = adaptive ? "1" : "";
     el.dataset.beacon = type === "beacon" ? (beacon || "") : "";
     el.dataset.original = ""; el.dataset.crop = "";
+    el.dataset.viewdx = "0"; el.dataset.viewdy = "0";
     if (type === "beacon") el.title = beacon ? `Beacon: ${beacon}` : "Beacon";
     const bodyHtml = type === "image"
-      ? `<img alt="" draggable="false">`
+      ? `<img alt="" draggable="false" decoding="async">`
       : type === "beacon"
       ? BEACON_SVG
       : (html || "");
@@ -340,12 +401,49 @@
     el.dataset.z = (z == null) ? ++topZ : z;
     topZ = Math.max(topZ, num(el, "z"));
     applyZ(el);
+    if (type === "beacon" && admin) decorateStar(el, 11, () => postForm("/admin/item/update", payload(el)));
     refreshAdaptive();
     return el;
   }
 
   // viewportCenterWorld returns world coords at the center of the screen.
   function centerWorld() { return screenToWorld(window.innerWidth / 2, window.innerHeight / 2); }
+
+  // ---- Image culling ----
+  // With many images, loading and decoding every one up front is wasteful. cull
+  // keeps a real src only on images whose item is within (a half-viewport margin
+  // of) the screen; off-screen images are swapped to a 1x1 placeholder so the
+  // browser can release their decoded memory. They reload from cache when panned
+  // back. The item keeps its box size via a recorded aspect-ratio, so nothing
+  // reflows. Runs on an idle tick after pan/zoom, on resize, and at boot.
+  const BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+  function cull() {
+    const imgs = world.querySelectorAll(".item-image");
+    if (!imgs.length) return;
+    const mx = window.innerWidth * 0.5, my = window.innerHeight * 0.5;
+    const a = screenToWorld(-mx, -my);
+    const b = screenToWorld(window.innerWidth + mx, window.innerHeight + my);
+    imgs.forEach((el) => {
+      const img = el.querySelector("img");
+      if (!img) return;
+      const url = el.dataset.md || "";
+      if (!url) return;
+      const ix = num(el, "x"), iy = num(el, "y");
+      const iw = el.offsetWidth || num(el, "w"), ih = el.offsetHeight || iw;
+      const visible = ix < b.x && ix + iw > a.x && iy < b.y && iy + ih > a.y;
+      if (visible && el.dataset.culled === "1") {
+        el.dataset.culled = "";
+        el.classList.remove("culled");
+        img.addEventListener("load", refreshAdaptive, { once: true });
+        img.src = url;
+      } else if (!visible && el.dataset.culled !== "1") {
+        if (img.naturalWidth && img.naturalHeight) img.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
+        el.dataset.culled = "1";
+        el.classList.add("culled");
+        img.src = BLANK;
+      }
+    });
+  }
 
   // ---- Admin actions ----
 
@@ -365,6 +463,13 @@
     }
     viewToggle.addEventListener("click", () => setPreview(!previewing));
     try { if (localStorage.getItem(PREVIEW_KEY) === "1") setPreview(true); } catch (_) {}
+
+    // Give every existing beacon and the origin a draggable view-point handle.
+    world.querySelectorAll(".item-beacon").forEach((el) =>
+      decorateStar(el, 11, () => postForm("/admin/item/update", payload(el))));
+    const originDot = document.getElementById("origin-dot");
+    if (originDot) decorateStar(originDot, 13, () =>
+      postForm("/admin/origin-view", { vx: num(originDot, "viewdx"), vy: num(originDot, "viewdy") }));
 
     const editorDialog = document.getElementById("editor");
     const editorText = document.getElementById("editor-text");
@@ -978,5 +1083,7 @@
   if (restored) applyView(); else centerOrigin();
   world.querySelectorAll(".item-text.adaptive").forEach((t) => wrapLetters(t.querySelector(".item-body")));
   refreshAdaptive();
+  cull();
   window.addEventListener("load", refreshAdaptive);
+  window.addEventListener("resize", cull);
 })();

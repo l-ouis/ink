@@ -97,6 +97,34 @@ body {
 body[data-authed]:not(.preview) .item-beacon { pointer-events: auto; }
 .item-beacon .item-resize { display: none !important; } /* fixed size */
 
+/* A beacon's (and the origin's) "view point": where [text](id) links land. The
+   handle is draggable independently of the star; a dashed line connects them.
+   Both are owner-only editing affordances, hidden in preview and for visitors. */
+.beacon-view, .beacon-link { display: none; }
+body[data-authed]:not(.preview) .beacon-view,
+body[data-authed]:not(.preview) .beacon-link { display: block; }
+.beacon-view {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--beacon);
+  box-shadow: 0 1px 2px #0000002a;
+  transform: translate(-50%, -50%);
+  cursor: move;
+  pointer-events: auto;
+  z-index: 4;
+}
+.beacon-link {
+  position: absolute;
+  height: 0;
+  border-top: 1.5px dashed var(--beacon);
+  transform-origin: 0 0;
+  pointer-events: none;
+  z-index: 3;
+}
+
 .item-body { position: relative; }
 
 .item-text .item-body {
@@ -122,6 +150,9 @@ body[data-authed]:not(.preview) .item-text:hover .item-body {
 body[data-authed] .item-text.adaptive .item-body { border-color: transparent; }
 
 .item-image .item-body { line-height: 0; }
+/* Off-screen images are swapped to a 1x1 placeholder to free decoded memory;
+   a faint fill keeps the box visible during fast pans before it reloads. */
+.item-image.culled img { background: #f1f1ef; }
 .item-image img {
   width: 100%;
   height: auto;

@@ -55,6 +55,11 @@ type Item struct {
 	// Beacon is an optional name for this item's location. A Markdown link
 	// whose target matches it — [text](beacon) — flies the canvas here.
 	Beacon string `json:"beacon,omitempty"`
+	// ViewDX/ViewDY apply to beacons: the offset of the beacon's "view point"
+	// (where links land) from the star marker's centre, in world units. Zero
+	// means links centre on the star itself.
+	ViewDX float64 `json:"viewdx,omitempty"`
+	ViewDY float64 `json:"viewdy,omitempty"`
 	// Original and Crop apply to cropped images. Content holds the cropped image
 	// shown to everyone; Original is the uncropped source URL, kept so the owner
 	// can re-crop; Crop is the last-applied rect "x,y,w,h" (fractions of the
@@ -74,6 +79,7 @@ func normalize(it *Item) {
 		}
 		it.Adaptive = false
 		it.Beacon = ""
+		it.ViewDX, it.ViewDY = 0, 0
 	case TypeBeacon:
 		it.Layer = ""
 		it.Adaptive = false
@@ -85,14 +91,15 @@ func normalize(it *Item) {
 		it.Beacon = ""
 		it.Original = ""
 		it.Crop = ""
+		it.ViewDX, it.ViewDY = 0, 0
 	}
 }
 
 // Store reads and writes the canvas to a single JSON file, keeping the current
 // state in memory behind a mutex so concurrent requests stay consistent.
 type Store struct {
-	path string
-	mu   sync.RWMutex
+	path  string
+	mu    sync.RWMutex
 	items map[string]*Item
 }
 
@@ -220,6 +227,7 @@ func (s *Store) Update(id string, p Item) (*Item, error) {
 	it.X, it.Y, it.W, it.H, it.Z = p.X, p.Y, p.W, p.H, p.Z
 	it.Content, it.Layer, it.Adaptive, it.Beacon = p.Content, p.Layer, p.Adaptive, p.Beacon
 	it.Original, it.Crop = p.Original, p.Crop
+	it.ViewDX, it.ViewDY = p.ViewDX, p.ViewDY
 	normalize(it)
 	if err := s.save(); err != nil {
 		*it = prev

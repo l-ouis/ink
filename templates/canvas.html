@@ -13,7 +13,8 @@
 <body{{if .Authed}} data-authed="1"{{end}} data-csrf="{{.CSRF}}">
   <div id="viewport">
     <div id="world">
-      <div id="origin-dot" aria-hidden="true" title="Canvas centre">
+      <div id="origin-dot" aria-hidden="true" title="Canvas centre"
+           data-viewdx="{{.OriginViewX}}" data-viewdy="{{.OriginViewY}}">
         <svg viewBox="-4 -4 32 32">
           <path class="star-ring" d="M12 0 Q13.6 10.4 24 12 Q13.6 13.6 12 24 Q10.4 13.6 0 12 Q10.4 10.4 12 0Z"/>
           <path class="star-core" d="M12 0 Q13.6 10.4 24 12 Q13.6 13.6 12 24 Q10.4 13.6 0 12 Q10.4 10.4 12 0Z"/>
@@ -25,9 +26,10 @@
            data-x="{{.X}}" data-y="{{.Y}}" data-w="{{.W}}" data-h="{{.H}}"
            data-layer="{{.Layer}}" data-adaptive="{{if .Adaptive}}1{{end}}"
            data-beacon="{{.Beacon}}" data-md="{{.Content}}"
-           data-original="{{.Original}}" data-crop="{{.Crop}}"{{if eq .Type "beacon"}} title="Beacon: {{.Beacon}}"{{end}}>
+           data-original="{{.Original}}" data-crop="{{.Crop}}"
+           data-viewdx="{{.ViewDX}}" data-viewdy="{{.ViewDY}}"{{if eq .Type "beacon"}} title="Beacon: {{.Beacon}}"{{end}}>
         <div class="item-body">
-          {{if eq .Type "text"}}{{.HTML}}{{else if eq .Type "beacon"}}<svg class="beacon-star" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0 Q13.6 10.4 24 12 Q13.6 13.6 12 24 Q10.4 13.6 0 12 Q10.4 10.4 12 0Z"/></svg>{{else}}<img src="{{.Content}}" alt="" draggable="false">{{end}}
+          {{if eq .Type "text"}}{{.HTML}}{{else if eq .Type "beacon"}}<svg class="beacon-star" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0 Q13.6 10.4 24 12 Q13.6 13.6 12 24 Q10.4 13.6 0 12 Q10.4 10.4 12 0Z"/></svg>{{else}}<img src="{{.Content}}" alt="" draggable="false" decoding="async">{{end}}
         </div>
         <button class="item-del" type="button" title="Delete" aria-label="Delete">&times;</button>
         <span class="item-resize" title="Resize" aria-hidden="true"></span>

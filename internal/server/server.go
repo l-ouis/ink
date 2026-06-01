@@ -156,6 +156,7 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /admin/item/add", s.auth.Require(s.handleItemAdd))
 	mux.HandleFunc("POST /admin/item/update", s.auth.Require(s.handleItemUpdate))
 	mux.HandleFunc("POST /admin/item/delete", s.auth.Require(s.handleItemDelete))
+	mux.HandleFunc("POST /admin/origin-view", s.auth.Require(s.handleOriginView))
 
 	// The canvas is the whole site. Everything else 404s.
 	mux.HandleFunc("GET /{$}", s.handleCanvas)

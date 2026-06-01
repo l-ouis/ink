@@ -23,6 +23,10 @@ type Config struct {
 	PasswordHash  string `json:"password_hash"`
 	SessionSecret string `json:"session_secret"`
 	SecureCookies bool   `json:"secure_cookies"`
+	// OriginViewX/Y offset the origin's "view point" — where the corner label and
+	// [text](origin) links land — from the origin star at (0,0), in world units.
+	OriginViewX float64 `json:"origin_view_x"`
+	OriginViewY float64 `json:"origin_view_y"`
 }
 
 // Font is a selectable serif typeface. Stack is the CSS font-family list; its
