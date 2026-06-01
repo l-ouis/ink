@@ -23,6 +23,9 @@ var (
 const (
 	TypeText  = "text"
 	TypeImage = "image"
+	// TypeBeacon is a named point on the canvas, rendered as a small star.
+	// A Markdown link [text](id) whose target matches its Beacon flies here.
+	TypeBeacon = "beacon"
 )
 
 // Image layers: whether an image stacks below or above all text.
@@ -49,18 +52,39 @@ type Item struct {
 	// Adaptive applies to text only: flip the text colour between black and
 	// white to contrast with the image behind it.
 	Adaptive bool `json:"adaptive,omitempty"`
+	// Beacon is an optional name for this item's location. A Markdown link
+	// whose target matches it — [text](beacon) — flies the canvas here.
+	Beacon string `json:"beacon,omitempty"`
+	// Original and Crop apply to cropped images. Content holds the cropped image
+	// shown to everyone; Original is the uncropped source URL, kept so the owner
+	// can re-crop; Crop is the last-applied rect "x,y,w,h" (fractions of the
+	// original) used to prefill the cropper.
+	Original string `json:"original,omitempty"`
+	Crop     string `json:"crop,omitempty"`
 }
 
-// normalize keeps type-specific fields consistent: images carry a valid layer
-// and never the text-only Adaptive flag, and vice versa.
+// normalize keeps type-specific fields consistent, so each item only carries
+// the fields meaningful to its type. Only beacons keep a Beacon id; only images
+// keep a Layer; only text keeps Adaptive and Content.
 func normalize(it *Item) {
-	if it.Type == TypeImage {
+	switch it.Type {
+	case TypeImage:
 		if it.Layer != LayerOver {
 			it.Layer = LayerUnder
 		}
 		it.Adaptive = false
-	} else {
+		it.Beacon = ""
+	case TypeBeacon:
 		it.Layer = ""
+		it.Adaptive = false
+		it.Content = ""
+		it.Original = ""
+		it.Crop = ""
+	default: // text
+		it.Layer = ""
+		it.Beacon = ""
+		it.Original = ""
+		it.Crop = ""
 	}
 }
 
@@ -164,7 +188,7 @@ func (s *Store) topZLocked() int {
 // Add stores a new item, assigning it a fresh ID and the top Z order, and
 // returns the stored copy.
 func (s *Store) Add(it Item) (*Item, error) {
-	if it.Type != TypeText && it.Type != TypeImage {
+	if it.Type != TypeText && it.Type != TypeImage && it.Type != TypeBeacon {
 		return nil, ErrType
 	}
 	s.mu.Lock()
@@ -183,9 +207,9 @@ func (s *Store) Add(it Item) (*Item, error) {
 }
 
 // Update applies geometry, stacking, content and option changes to an existing
-// item. Type and ID are fixed; layer (images) and adaptive (text) are
+// item from the fields of p. Type and ID are fixed (p's are ignored); fields are
 // normalized to the item's type. Stacking order (z) is client-authoritative.
-func (s *Store) Update(id string, x, y, w, h float64, z int, content, layer string, adaptive bool) (*Item, error) {
+func (s *Store) Update(id string, p Item) (*Item, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	it, ok := s.items[id]
@@ -193,8 +217,9 @@ func (s *Store) Update(id string, x, y, w, h float64, z int, content, layer stri
 		return nil, ErrNotFound
 	}
 	prev := *it
-	it.X, it.Y, it.W, it.H, it.Z, it.Content = x, y, w, h, z, content
-	it.Layer, it.Adaptive = layer, adaptive
+	it.X, it.Y, it.W, it.H, it.Z = p.X, p.Y, p.W, p.H, p.Z
+	it.Content, it.Layer, it.Adaptive, it.Beacon = p.Content, p.Layer, p.Adaptive, p.Beacon
+	it.Original, it.Crop = p.Original, p.Crop
 	normalize(it)
 	if err := s.save(); err != nil {
 		*it = prev

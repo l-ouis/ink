@@ -8,6 +8,7 @@
   --bg: #fdfdfc;
   --accent: #1a5fb4;
   --danger: #b4291a;
+  --beacon: #000; /* beacon star markers */
   --serif: "Noto Serif", Georgia, "Times New Roman", serif;
   --sans: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
 }
@@ -25,16 +26,13 @@ body {
   overscroll-behavior: none;
 }
 
-/* The window onto the canvas. A faint dot grid gives a sense of motion when
-   panning; it is purely decorative. */
+/* The window onto the canvas. */
 #viewport {
   position: fixed;
   inset: 0;
   cursor: grab;
   touch-action: none;
   background-color: var(--bg);
-  background-image: radial-gradient(circle, #e3e3df 1px, transparent 1px);
-  background-size: 40px 40px;
 }
 #viewport.panning { cursor: grabbing; }
 
@@ -45,7 +43,10 @@ body {
   top: 0;
   left: 0;
   transform-origin: 0 0;
-  will-change: transform;
+  /* will-change is toggled on by canvas.js only during active pan/zoom. Leaving
+     it on permanently caches the layer's bitmap at one scale, so zooming in
+     stretches that bitmap and text/SVG look blurry; clearing it when idle lets
+     the browser re-rasterize crisply at the settled zoom. */
 }
 
 /* A curved-diamond "sparkle" marking the world origin (0,0): the canvas centre
@@ -61,15 +62,15 @@ body {
   pointer-events: none;
   z-index: 9000000;
 }
-#origin-dot svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-  fill: #000;
-  stroke: #fff;        /* white outline keeps it visible on dark images */
-  stroke-width: 1.5;
-  paint-order: stroke; /* outline behind the fill */
-}
+/* The origin star is two stacked copies of the same path. Both fill black and
+   paint their stroke behind the fill, so the stroke only shows as a ring outside
+   the star: the back copy's wide black stroke forms the outer outline, and the
+   front copy's narrower white stroke punches a white gap between that outline
+   and the black star. overflow:visible lets the rings extend past the viewBox. */
+#origin-dot svg { display: block; width: 100%; height: 100%; overflow: visible; }
+#origin-dot path { fill: #000; paint-order: stroke; stroke-linejoin: round; }
+#origin-dot .star-ring { stroke: #000; stroke-width: 6; }
+#origin-dot .star-core { stroke: #fff; stroke-width: 3; }
 
 /* Items are absolutely positioned in world coordinates; canvas.js sets left/
    top/width from their data-* attributes. */
@@ -77,6 +78,24 @@ body {
   position: absolute;
   max-width: none;
 }
+
+/* A beacon is a named landmark, drawn as a smaller indigo cousin of the origin
+   star. Visitors see it as a non-interactive marker (it never blocks panning);
+   the owner can drag, rename and delete it. */
+.item-beacon { width: 22px; height: 22px; pointer-events: none; }
+.item-beacon .item-body { width: 100%; height: 100%; line-height: 0; }
+.beacon-star {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: var(--beacon);
+  stroke: #fff;        /* white outline keeps it visible on dark images */
+  stroke-width: 1.5;
+  paint-order: stroke; /* outline behind the fill */
+  stroke-linejoin: round;
+}
+body[data-authed]:not(.preview) .item-beacon { pointer-events: auto; }
+.item-beacon .item-resize { display: none !important; } /* fixed size */
 
 .item-body { position: relative; }
 
@@ -87,6 +106,14 @@ body {
   padding: 0.4rem 1.1rem;
   word-wrap: break-word;
   overflow-wrap: break-word;
+  transition: box-shadow 0.12s ease;
+}
+
+/* In admin mode, hovering a text box tints it with a faint translucent black so
+   it reads as editable. An inset shadow layers over the box's own background,
+   so it shows on white and adaptive-transparent boxes alike. */
+body[data-authed]:not(.preview) .item-text:hover .item-body {
+  box-shadow: inset 0 0 0 1000px rgba(0, 0, 0, 0.06);
 }
 
 /* Adaptive text boxes go transparent so the image behind shows through; the
@@ -172,13 +199,17 @@ body[data-authed] .item-text.adaptive .item-body { border-color: transparent; }
 }
 #toolbar button:hover { border-color: #d0d0cc; background: #fafaf8; }
 
-/* Editing affordances appear only in admin mode. */
+/* Editing affordances appear only in admin mode — and not while previewing,
+   where the owner sees the canvas exactly as a visitor does. */
 .item-del, .item-resize { display: none; }
 
-body[data-authed] .item { cursor: move; user-select: none; }
-body[data-authed] .item-text .item-body { border-color: var(--faint); }
-body[data-authed] .item:hover .item-del,
-body[data-authed] .item:hover .item-resize { display: block; }
+body[data-authed]:not(.preview) .item { cursor: move; user-select: none; }
+body[data-authed]:not(.preview) .item-text .item-body { border-color: var(--faint); }
+body[data-authed]:not(.preview) .item:hover .item-del,
+body[data-authed]:not(.preview) .item:hover .item-resize { display: block; }
+
+/* In preview, only the toggle stays — everything else in the toolbar hides. */
+body.preview #toolbar > :not(#view-toggle) { display: none; }
 
 .item-del {
   position: absolute;
@@ -250,6 +281,59 @@ dialog button {
 }
 dialog button[type=submit] { background: var(--ink); color: #fff; border-color: var(--ink); }
 
+/* ---- Image cropper ---- */
+.crop-form { gap: 0.7rem; }
+#crop-apply { background: var(--ink); color: #fff; border-color: var(--ink); }
+/* The stage is sized in JS to the fitted original; the crop box overlays it. */
+.crop-stage { position: relative; align-self: center; line-height: 0; touch-action: none; user-select: none; overflow: hidden; }
+#crop-img { display: block; width: 100%; height: 100%; -webkit-user-drag: none; }
+.crop-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid #fff;
+  outline: 1px solid rgba(0, 0, 0, 0.6);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45); /* dim everything outside the box */
+  cursor: move;
+}
+.crop-h {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+}
+.crop-h[data-c=tl] { left: -7px; top: -7px; cursor: nwse-resize; }
+.crop-h[data-c=tr] { right: -7px; top: -7px; cursor: nesw-resize; }
+.crop-h[data-c=bl] { left: -7px; bottom: -7px; cursor: nesw-resize; }
+.crop-h[data-c=br] { right: -7px; bottom: -7px; cursor: nwse-resize; }
+.crop-actions { display: flex; align-items: center; gap: 0.5rem; }
+
+/* ---- Inline delete confirm ---- */
+/* Clicking an item's × swaps it for a small ✓ / ✗ pair in the same corner. */
+.item-del-confirm {
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  display: flex;
+  gap: 4px;
+  z-index: 3;
+}
+.item-del-confirm button {
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  font-size: 14px;
+  padding: 0;
+  border: 1px solid var(--faint);
+  border-radius: 50%;
+  background: #fff;
+  cursor: pointer;
+  box-shadow: 0 1px 2px #0000001a;
+}
+.item-del-confirm .yes { color: #1a7f37; }
+.item-del-confirm .no { color: var(--muted); }
+
 #editor { width: min(40rem, 92vw); }
 #editor-form { display: flex; flex-direction: column; gap: 0.6rem; }
 #editor-text {
@@ -263,5 +347,8 @@ dialog button[type=submit] { background: var(--ink); color: #fff; border-color: 
   border: 1px solid var(--faint);
   border-radius: 6px;
 }
+.settings-actions .spacer { flex: 1; }
+dialog button.link-danger { border-color: transparent; background: none; color: var(--danger); padding-left: 0; }
+dialog button.link-danger:hover { text-decoration: underline; }
 .editor-actions { display: flex; align-items: center; gap: 0.6rem; }
 .editor-tip { flex: 1; font-size: 0.75rem; color: var(--muted); }

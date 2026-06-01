@@ -98,6 +98,7 @@ func (s *Server) handleItemAdd(w http.ResponseWriter, r *http.Request) {
 		Content:  r.FormValue("content"),
 		Layer:    r.FormValue("layer"),
 		Adaptive: r.FormValue("adaptive") == "1",
+		Beacon:   strings.TrimSpace(r.FormValue("beacon")),
 	}
 	stored, err := s.canvas.Add(it)
 	if errors.Is(err, canvas.ErrType) {
@@ -126,14 +127,17 @@ func (s *Server) handleItemUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	stored, err := s.canvas.Update(
-		r.FormValue("id"),
-		formFloat(r, "x", 0), formFloat(r, "y", 0),
-		formFloat(r, "w", 0), formFloat(r, "h", 0),
-		int(formFloat(r, "z", 0)),
-		r.FormValue("content"),
-		r.FormValue("layer"), r.FormValue("adaptive") == "1",
-	)
+	stored, err := s.canvas.Update(r.FormValue("id"), canvas.Item{
+		X: formFloat(r, "x", 0), Y: formFloat(r, "y", 0),
+		W: formFloat(r, "w", 0), H: formFloat(r, "h", 0),
+		Z:        int(formFloat(r, "z", 0)),
+		Content:  r.FormValue("content"),
+		Layer:    r.FormValue("layer"),
+		Adaptive: r.FormValue("adaptive") == "1",
+		Beacon:   strings.TrimSpace(r.FormValue("beacon")),
+		Original: strings.TrimSpace(r.FormValue("original")),
+		Crop:     strings.TrimSpace(r.FormValue("crop")),
+	})
 	if errors.Is(err, canvas.ErrNotFound) {
 		http.Error(w, "no such item", http.StatusNotFound)
 		return

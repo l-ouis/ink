@@ -14,16 +14,20 @@
   <div id="viewport">
     <div id="world">
       <div id="origin-dot" aria-hidden="true" title="Canvas centre">
-        <svg viewBox="0 0 24 24"><path d="M12 0 Q13.6 10.4 24 12 Q13.6 13.6 12 24 Q10.4 13.6 0 12 Q10.4 10.4 12 0Z"/></svg>
+        <svg viewBox="-4 -4 32 32">
+          <path class="star-ring" d="M12 0 Q13.6 10.4 24 12 Q13.6 13.6 12 24 Q10.4 13.6 0 12 Q10.4 10.4 12 0Z"/>
+          <path class="star-core" d="M12 0 Q13.6 10.4 24 12 Q13.6 13.6 12 24 Q10.4 13.6 0 12 Q10.4 10.4 12 0Z"/>
+        </svg>
       </div>
       {{range .Items}}
       <div class="item item-{{.Type}}{{if and (eq .Type "text") .Adaptive}} adaptive{{end}}"
            data-id="{{.ID}}" data-type="{{.Type}}"
            data-x="{{.X}}" data-y="{{.Y}}" data-w="{{.W}}" data-h="{{.H}}"
            data-layer="{{.Layer}}" data-adaptive="{{if .Adaptive}}1{{end}}"
-           data-md="{{.Content}}">
+           data-beacon="{{.Beacon}}" data-md="{{.Content}}"
+           data-original="{{.Original}}" data-crop="{{.Crop}}"{{if eq .Type "beacon"}} title="Beacon: {{.Beacon}}"{{end}}>
         <div class="item-body">
-          {{if eq .Type "text"}}{{.HTML}}{{else}}<img src="{{.Content}}" alt="" draggable="false">{{end}}
+          {{if eq .Type "text"}}{{.HTML}}{{else if eq .Type "beacon"}}<svg class="beacon-star" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 0 Q13.6 10.4 24 12 Q13.6 13.6 12 24 Q10.4 13.6 0 12 Q10.4 10.4 12 0Z"/></svg>{{else}}<img src="{{.Content}}" alt="" draggable="false">{{end}}
         </div>
         <button class="item-del" type="button" title="Delete" aria-label="Delete">&times;</button>
         <span class="item-resize" title="Resize" aria-hidden="true"></span>
@@ -37,8 +41,10 @@
 
   {{if .Authed}}
   <div id="toolbar">
+    <button type="button" id="view-toggle" title="Preview as a visitor">👁 Preview</button>
     <button type="button" id="add-text" title="Add a text box">＋ Text</button>
     <button type="button" id="add-image" title="Add an image">＋ Image</button>
+    <button type="button" id="add-beacon" title="Add a beacon">✦ Beacon</button>
     <button type="button" id="open-settings" title="Settings">⚙</button>
     <form method="post" action="/admin/logout" class="inline">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
@@ -92,6 +98,21 @@
     </form>
   </dialog>
 
+  <dialog id="beacon-opts">
+    <form id="beacon-form" class="settings-form">
+      <h2>Beacon</h2>
+      <label>Link id
+        <input type="text" id="beacon-id" placeholder="e.g. intro — link with [text](intro)" spellcheck="false" autocomplete="off">
+      </label>
+      <div class="settings-actions">
+        <button type="button" id="beacon-delete" class="link-danger">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" id="beacon-cancel">Cancel</button>
+        <button type="submit">Save</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="image-opts">
     <div class="settings-form">
       <h2>Image</h2>
@@ -109,8 +130,35 @@
           <button type="button" data-z="front" title="Bring to front">⤒ Front</button>
         </div>
       </div>
+      <div class="opt-group">
+        <span class="opt-label">Edit</span>
+        <div class="z-controls">
+          <button type="button" id="image-crop" title="Crop this image">⌗ Crop…</button>
+        </div>
+      </div>
       <div class="settings-actions">
         <button type="button" id="image-opts-close">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="crop-dialog">
+    <div class="settings-form crop-form">
+      <h2>Crop image</h2>
+      <div class="crop-stage" id="crop-stage">
+        <img id="crop-img" alt="" draggable="false">
+        <div class="crop-box" id="crop-box">
+          <span class="crop-h" data-c="tl"></span><span class="crop-h" data-c="tr"></span>
+          <span class="crop-h" data-c="bl"></span><span class="crop-h" data-c="br"></span>
+        </div>
+      </div>
+      <div class="crop-actions">
+        <button type="button" id="crop-square" title="Lock to a square">□ Square</button>
+        <button type="button" id="crop-free" title="Free aspect ratio">⬚ Free</button>
+        <span class="spacer"></span>
+        <button type="button" id="crop-reset" class="link-danger">Reset to original</button>
+        <button type="button" id="crop-cancel">Cancel</button>
+        <button type="button" id="crop-apply">Apply</button>
       </div>
     </div>
   </dialog>
